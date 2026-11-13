@@ -1,0 +1,6 @@
+# Mang giao tiep su dung 100% thu vien chuan Python 3 (socket, threading).
+# KHONG dung thu vien mang ben ngoai.
+#
+# Tuy chon cho Console UI (Thanh vien 3 - Option A theo muc 4.3 de bai):
+# Bo dau '#' ben duoi neu nhom chon prompt_toolkit thay vi ANSI manual redraw.
+# prompt_toolkit>=3.0.48

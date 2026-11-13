@@ -1,0 +1,21 @@
+# Bytecode & Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Received files during testing/demo (keep folder via .gitkeep)
+downloads/*
+!downloads/.gitkeep
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
