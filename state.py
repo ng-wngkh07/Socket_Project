@@ -205,6 +205,19 @@ class SharedState:
             self._active_conns[peer.peer_id] = conn
         return conn, prev_sock
 
+    def register_conn_if_absent(
+        self,
+        peer: Peer,
+        sock: socket.socket,
+    ) -> tuple[PeerConnection, bool]:
+        with self._lock:
+            existing = self._active_conns.get(peer.peer_id)
+            if existing is not None:
+                return existing, False
+            conn = PeerConnection(peer=peer.copy(), sock=sock)
+            self._active_conns[peer.peer_id] = conn
+            return conn, True
+
     def get_conn(self, peer_id: str) -> Optional[PeerConnection]:
         """Return active PeerConnection for peer_id, or None."""
         with self._lock:
@@ -214,6 +227,7 @@ class SharedState:
         self,
         peer_id: str,
         expected_sock: Optional[socket.socket] = None,
+        clear_partner: bool = True,
     ) -> tuple[Optional[PeerConnection], bool]:
         """Remove active connection if it matches expected_sock (when given).
 
@@ -228,7 +242,7 @@ class SharedState:
 
             self._active_conns.pop(peer_id, None)
             was_partner = self._current_partner_id == peer_id
-            if was_partner:
+            if was_partner and clear_partner:
                 self._current_partner_id = None
             return conn, was_partner
 
