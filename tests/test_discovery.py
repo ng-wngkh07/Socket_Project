@@ -1,7 +1,8 @@
-"""Unit tests for UDP PeerDiscovery module (Owner: Thanh vien 2)."""
+"""Unit and cross-module integration tests for UDP PeerDiscovery (Owner: Thanh vien 2)."""
 
 from __future__ import annotations
 
+import io
 import socket
 import sys
 import time
@@ -12,23 +13,36 @@ SRC_DIR = Path(__file__).resolve().parent.parent
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from console_ui import ANSI_CLEAR_LINE, PROMPT, ConsoleUI  # noqa: E402
 from discovery import PeerDiscovery  # noqa: E402
+from file_transfer import FileTransferManager  # noqa: E402
 from protocol import encode_hello  # noqa: E402
 from state import SharedState  # noqa: E402
+from tcp_chat import TcpChatManager  # noqa: E402
 
 
 class _MockUI:
-    """Thread-safe mock ConsoleUI recording notify() messages."""
+    """Thread-safe mock ConsoleUI recording notify() and display_chat() messages."""
 
     def __init__(self) -> None:
         self.notifications: list[str] = []
+        self.chats: list[tuple[str, str]] = []
 
     def notify(self, text: str) -> None:
         self.notifications.append(text)
 
+    def display_chat(self, sender: str, text: str) -> None:
+        self.chats.append((sender, text))
+
 
 def _find_free_udp_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _find_free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return int(s.getsockname()[1])
 
@@ -166,6 +180,110 @@ class TestPeerDiscovery(unittest.TestCase):
         finally:
             d1.stop()
             d2.stop()
+
+    def test_m3_discovery_to_tcp_chat_integration_via_console_commands(self) -> None:
+        """Milestone 3 TV2 integration: /chat <number|name> resolves from UDP table and opens TCP chat."""
+        udp_port = _find_free_udp_port()
+        tcp_port_1 = _find_free_tcp_port()
+        tcp_port_2 = _find_free_tcp_port()
+
+        st1 = SharedState("Quan", tcp_port_1)
+        out1 = io.StringIO()
+        ui1 = ConsoleUI(stdin=io.StringIO(""), stdout=out1)
+        ft1 = FileTransferManager(st1, ui1)
+        d1 = PeerDiscovery(
+            st1,
+            ui1,
+            udp_port=udp_port,
+            bcast_addr="127.255.255.255",
+            broadcast_interval=0.15,
+            peer_timeout=2.0,
+        )
+        c1 = TcpChatManager(st1, ui1, ft1, tcp_port=tcp_port_1)
+
+        st2 = SharedState("Minh", tcp_port_2)
+        out2 = io.StringIO()
+        ui2 = ConsoleUI(stdin=io.StringIO(""), stdout=out2)
+        ft2 = FileTransferManager(st2, ui2)
+        d2 = PeerDiscovery(
+            st2,
+            ui2,
+            udp_port=udp_port,
+            bcast_addr="127.255.255.255",
+            broadcast_interval=0.15,
+            peer_timeout=2.0,
+        )
+        c2 = TcpChatManager(st2, ui2, ft2, tcp_port=tcp_port_2)
+
+        handlers1 = {
+            "list": d1.format_online_list,
+            "resolve_peer": d1.resolve_peer,
+            "status": d1.set_status,
+            "chat": c1.connect_and_switch,
+            "send_text": c1.send_chat,
+            "leave": c1.leave_chat,
+            "send_file": ft1.send_file_async,
+            "get_partner": st1.get_current_partner,
+        }
+
+        try:
+            c1.start()
+            c2.start()
+            d1.start()
+            d2.start()
+
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline:
+                if d1.resolve_peer("1") is not None:
+                    break
+                time.sleep(0.05)
+
+            self.assertIsNotNone(d1.resolve_peer("1"))
+
+            # Quan runs '/chat 1' (resolves Minh via UDP discovery index) and sends a chat message
+            ui1.dispatch_line("/chat 1", handlers1)
+            ui1.dispatch_line("Xin chao Minh tu bang UDP discovery!", handlers1)
+
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline:
+                if st2.get_unread_count(f"Quan@127.0.0.1:{tcp_port_1}") == 1:
+                    break
+                time.sleep(0.05)
+
+            self.assertIn(f"[*] Connected to Minh (127.0.0.1:{tcp_port_2})", out1.getvalue())
+            self.assertIn("[*] New message from Quan (1 unread)", out2.getvalue())
+        finally:
+            c1.stop()
+            c2.stop()
+            d1.stop()
+            d2.stop()
+
+    def test_m4_udp_notify_does_not_break_active_console_typing(self) -> None:
+        """Milestone 4 TV2 integration: UDP online/offline notifications redraw active typed line."""
+        out = io.StringIO()
+        ui = ConsoleUI(stdin=io.StringIO(""), stdout=out)
+        st = SharedState("Quan", 5001)
+        disc = PeerDiscovery(st, ui)
+
+        # Simulate user currently typing "> alo ban " without pressing Enter yet
+        ui._start_prompt()
+        for ch in "alo ban ":
+            ui._handle_char(ch)
+
+        # UDP listener receives a new peer HELLO packet in the background
+        disc._process_datagram(encode_hello("Minh", 5002, "online"), "192.168.1.12", now=10.0)
+
+        rendered = out.getvalue()
+        self.assertIn(
+            f"{ANSI_CLEAR_LINE}[*] Minh (192.168.1.12) is online\n{PROMPT}alo ban ",
+            rendered,
+        )
+
+        # User finishes typing "ơi" and hits Enter
+        for ch in "oi":
+            ui._handle_char(ch)
+        final_line = ui._finish_entered_line()
+        self.assertEqual(final_line, "alo ban oi")
 
 
 if __name__ == "__main__":
