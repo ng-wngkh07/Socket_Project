@@ -10,7 +10,8 @@
 
 ## 1. Yêu cầu môi trường & Cài đặt
 
-- **Python**: Python 3.10 trở lên (không cần cài thêm thư viện ngoài; chạy 100% bằng thư viện chuẩn Python).
+- **Python**: Python 3.10 trở lên (mạng giao tiếp và giao diện chạy **100% bằng thư viện chuẩn Python** `socket`, `threading`, `argparse`, `os`, `termios`/`msvcrt` — không bắt buộc cài thêm gói ngoài qua `pip`).
+- **Tùy chọn `requirements.txt`**: File chỉ liệt kê sẵn dòng ghi chú cho `prompt_toolkit` nếu cần tùy biến sau; khi chạy bản chính thức không cần chạy `pip install`.
 - **Tường lửa khi test 2+ máy LAN (Windows)**: Cho phép `python.exe` đi qua Windows Defender Firewall (mạng Private/Public) để nhận được gói UDP broadcast cổng `9999` và kết nối TCP.
 
 ---
@@ -24,11 +25,26 @@
 | `--name` | Có | — | Tên hiển thị với các peer trong LAN |
 | `--port` | Không | `5000` | Cổng TCP lắng nghe tin nhắn & file |
 | `--udp-port` | Không | `9999` | Cổng UDP phát & nghe gói hiện diện `HELLO` |
-| `--bcast` | Không | `255.255.255.255` | Địa chỉ UDP broadcast (dùng `127.255.255.255` khi test 1 máy) |
+| `--bcast` | Không | `255.255.255.255` | Địa chỉ UDP broadcast (Windows offline dùng `127.255.255.255`; macOS giữ mặc định `255.255.255.255`) |
 
 ### Chạy test nhiều cửa sổ trên 1 máy
 
 Mở 2–3 cửa sổ terminal khác nhau và gán cổng `--port` khác nhau:
+
+- **Trên macOS / Linux (đang kết nối Wi-Fi/LAN):** giữ mặc định `255.255.255.255` (vì interface `lo0` trên macOS không bật cờ `BROADCAST` cho `127.255.255.255`):
+
+```bash
+# Terminal 1
+python3 lanchat.py --name Quan --port 5001
+
+# Terminal 2
+python3 lanchat.py --name Minh --port 5002
+
+# Terminal 3 (tùy chọn, test unread đa peer)
+python3 lanchat.py --name Huy --port 5003
+```
+
+- **Trên Windows (kể cả khi offline):** truyền thêm `--bcast 127.255.255.255`:
 
 ```bash
 # Terminal 1
@@ -36,19 +52,18 @@ python lanchat.py --name Quan --port 5001 --bcast 127.255.255.255
 
 # Terminal 2
 python lanchat.py --name Minh --port 5002 --bcast 127.255.255.255
-
-# Terminal 3 (tùy chọn, test unread đa peer)
-python lanchat.py --name Huy --port 5003 --bcast 127.255.255.255
 ```
 
 ### Chạy trên >= 2 máy thật cùng mạng LAN / Wi-Fi
 
+Các máy cần kết nối chung một mạng LAN/Wi-Fi hoặc Hotspot (router không bật *AP/Client Isolation*):
+
 ```bash
-# Máy A
-python lanchat.py --name Quan --port 5000
+# Máy A (macOS/Linux dùng python3; Windows dùng python)
+python3 lanchat.py --name Quan --port 5000
 
 # Máy B
-python lanchat.py --name Minh --port 5000
+python3 lanchat.py --name Minh --port 5000
 ```
 
 ---
@@ -75,9 +90,11 @@ Mọi dòng không bắt đầu bằng `/` được gửi như tin nhắn chat t
 ### Chạy toàn bộ unit test tự động
 
 ```bash
-python -m unittest discover -s tests -v
-python lanchat.py --help
+python3 -B -m unittest discover -s tests -v
+python3 -B lanchat.py --help
 ```
+
+*(Lưu ý: cờ `-B` giúp Python không sinh thư mục `__pycache__/`; hai bài test đa instance dùng `127.255.255.255` trong `tests/test_discovery.py` dành cho loopback trên Windows, còn trên macOS kiểm tra UDP thực tế bằng `--bcast 255.255.255.255`.)*
 
 ### Kịch bản tự kiểm tra nhanh
 
